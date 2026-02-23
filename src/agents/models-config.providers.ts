@@ -773,182 +773,33 @@ export async function resolveImplicitProviders(params: {
     allowKeychainPrompt: false,
   });
 
-  const minimaxKey =
-    resolveEnvApiKeyVarName("minimax") ??
-    resolveApiKeyFromProfiles({ provider: "minimax", store: authStore });
-  if (minimaxKey) {
-    providers.minimax = { ...buildMinimaxProvider(), apiKey: minimaxKey };
-  }
-
-  const minimaxOauthProfile = listProfilesForProvider(authStore, "minimax-portal");
-  if (minimaxOauthProfile.length > 0) {
-    providers["minimax-portal"] = {
-      ...buildMinimaxPortalProvider(),
-      apiKey: MINIMAX_OAUTH_PLACEHOLDER,
-    };
-  }
-
-  const moonshotKey =
-    resolveEnvApiKeyVarName("moonshot") ??
-    resolveApiKeyFromProfiles({ provider: "moonshot", store: authStore });
-  if (moonshotKey) {
-    providers.moonshot = { ...buildMoonshotProvider(), apiKey: moonshotKey };
-  }
-
-  const kimiCodingKey =
-    resolveEnvApiKeyVarName("kimi-coding") ??
-    resolveApiKeyFromProfiles({ provider: "kimi-coding", store: authStore });
-  if (kimiCodingKey) {
-    providers["kimi-coding"] = { ...buildKimiCodingProvider(), apiKey: kimiCodingKey };
-  }
-
-  const syntheticKey =
-    resolveEnvApiKeyVarName("synthetic") ??
-    resolveApiKeyFromProfiles({ provider: "synthetic", store: authStore });
-  if (syntheticKey) {
-    providers.synthetic = { ...buildSyntheticProvider(), apiKey: syntheticKey };
-  }
-
-  const veniceKey =
-    resolveEnvApiKeyVarName("venice") ??
-    resolveApiKeyFromProfiles({ provider: "venice", store: authStore });
-  if (veniceKey) {
-    providers.venice = { ...(await buildVeniceProvider()), apiKey: veniceKey };
-  }
-
-  const qwenProfiles = listProfilesForProvider(authStore, "qwen-portal");
-  if (qwenProfiles.length > 0) {
-    providers["qwen-portal"] = {
-      ...buildQwenPortalProvider(),
-      apiKey: QWEN_PORTAL_OAUTH_PLACEHOLDER,
-    };
-  }
-
-  const volcengineKey =
-    resolveEnvApiKeyVarName("volcengine") ??
-    resolveApiKeyFromProfiles({ provider: "volcengine", store: authStore });
-  if (volcengineKey) {
-    providers.volcengine = { ...buildDoubaoProvider(), apiKey: volcengineKey };
-    providers["volcengine-plan"] = {
-      ...buildDoubaoCodingProvider(),
-      apiKey: volcengineKey,
-    };
-  }
-
-  const byteplusKey =
-    resolveEnvApiKeyVarName("byteplus") ??
-    resolveApiKeyFromProfiles({ provider: "byteplus", store: authStore });
-  if (byteplusKey) {
-    providers.byteplus = { ...buildBytePlusProvider(), apiKey: byteplusKey };
-    providers["byteplus-plan"] = {
-      ...buildBytePlusCodingProvider(),
-      apiKey: byteplusKey,
-    };
-  }
-
-  const xiaomiKey =
-    resolveEnvApiKeyVarName("xiaomi") ??
-    resolveApiKeyFromProfiles({ provider: "xiaomi", store: authStore });
-  if (xiaomiKey) {
-    providers.xiaomi = { ...buildXiaomiProvider(), apiKey: xiaomiKey };
-  }
-
-  const cloudflareProfiles = listProfilesForProvider(authStore, "cloudflare-ai-gateway");
-  for (const profileId of cloudflareProfiles) {
-    const cred = authStore.profiles[profileId];
-    if (cred?.type !== "api_key") {
-      continue;
-    }
-    const accountId = cred.metadata?.accountId?.trim();
-    const gatewayId = cred.metadata?.gatewayId?.trim();
-    if (!accountId || !gatewayId) {
-      continue;
-    }
-    const baseUrl = resolveCloudflareAiGatewayBaseUrl({ accountId, gatewayId });
-    if (!baseUrl) {
-      continue;
-    }
-    const apiKey = resolveEnvApiKeyVarName("cloudflare-ai-gateway") ?? cred.key?.trim() ?? "";
-    if (!apiKey) {
-      continue;
-    }
-    providers["cloudflare-ai-gateway"] = {
-      baseUrl,
-      api: "anthropic-messages",
-      apiKey,
-      models: [buildCloudflareAiGatewayModelDefinition()],
-    };
-    break;
-  }
-
-  // Ollama provider - only add if explicitly configured.
+  // Ollama provider - always available for local models
   // Use the user's configured baseUrl (from explicit providers) for model
   // discovery so that remote / non-default Ollama instances are reachable.
-  const ollamaKey =
-    resolveEnvApiKeyVarName("ollama") ??
-    resolveApiKeyFromProfiles({ provider: "ollama", store: authStore });
-  if (ollamaKey) {
-    const ollamaBaseUrl = params.explicitProviders?.ollama?.baseUrl;
-    providers.ollama = { ...(await buildOllamaProvider(ollamaBaseUrl)), apiKey: ollamaKey };
-  }
+  const ollamaBaseUrl = params.explicitProviders?.ollama?.baseUrl;
+  const ollamaModels = await discoverOllamaModels(ollamaBaseUrl);
 
-  // vLLM provider - OpenAI-compatible local server (opt-in via env/profile).
-  // If explicitly configured, keep user-defined models/settings as-is.
-  if (!params.explicitProviders?.vllm) {
-    const vllmEnvVar = resolveEnvApiKeyVarName("vllm");
-    const vllmProfileKey = resolveApiKeyFromProfiles({ provider: "vllm", store: authStore });
-    const vllmKey = vllmEnvVar ?? vllmProfileKey;
-    if (vllmKey) {
-      const discoveryApiKey = vllmEnvVar
-        ? (process.env[vllmEnvVar]?.trim() ?? "")
-        : (vllmProfileKey ?? "");
-      providers.vllm = {
-        ...(await buildVllmProvider({ apiKey: discoveryApiKey || undefined })),
-        apiKey: vllmKey,
-      };
-    }
-  }
+  // If Ollama is not running or has no models, use default local models
+  const models = ollamaModels.length > 0 ? ollamaModels : [];
 
-  const togetherKey =
-    resolveEnvApiKeyVarName("together") ??
-    resolveApiKeyFromProfiles({ provider: "together", store: authStore });
-  if (togetherKey) {
-    providers.together = {
-      ...buildTogetherProvider(),
-      apiKey: togetherKey,
+  providers.ollama = {
+    baseUrl: resolveOllamaApiBase(ollamaBaseUrl),
+    api: "ollama",
+    models,
+  };
+
+  // OpenCode Zen provider - only add if API key is configured
+  const opencodeZenKey =
+    resolveEnvApiKeyVarName("opencode-zen") ??
+    resolveApiKeyFromProfiles({ provider: "opencode-zen", store: authStore });
+  if (opencodeZenKey) {
+    const { OPENCODE_ZEN_API_BASE_URL } = await import("./opencode-zen-models.js");
+    providers["opencode-zen"] = {
+      baseUrl: OPENCODE_ZEN_API_BASE_URL,
+      api: "openai-completions",
+      apiKey: opencodeZenKey,
+      models: [],
     };
-  }
-
-  const huggingfaceKey =
-    resolveEnvApiKeyVarName("huggingface") ??
-    resolveApiKeyFromProfiles({ provider: "huggingface", store: authStore });
-  if (huggingfaceKey) {
-    const hfProvider = await buildHuggingfaceProvider(huggingfaceKey);
-    providers.huggingface = {
-      ...hfProvider,
-      apiKey: huggingfaceKey,
-    };
-  }
-
-  const qianfanKey =
-    resolveEnvApiKeyVarName("qianfan") ??
-    resolveApiKeyFromProfiles({ provider: "qianfan", store: authStore });
-  if (qianfanKey) {
-    providers.qianfan = { ...buildQianfanProvider(), apiKey: qianfanKey };
-  }
-
-  const openrouterKey =
-    resolveEnvApiKeyVarName("openrouter") ??
-    resolveApiKeyFromProfiles({ provider: "openrouter", store: authStore });
-  if (openrouterKey) {
-    providers.openrouter = { ...buildOpenrouterProvider(), apiKey: openrouterKey };
-  }
-
-  const nvidiaKey =
-    resolveEnvApiKeyVarName("nvidia") ??
-    resolveApiKeyFromProfiles({ provider: "nvidia", store: authStore });
-  if (nvidiaKey) {
-    providers.nvidia = { ...buildNvidiaProvider(), apiKey: nvidiaKey };
   }
 
   return providers;
